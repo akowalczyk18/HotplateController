@@ -23,7 +23,7 @@
 #define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 #define VCC 3
-#define R 100000
+#define R 4700
 #define RT0 100000
 #define Beta 3950
 
@@ -46,6 +46,7 @@ void dwnBtnISR();
 //define doubles used for temperature handling
 double RT, VR, ln, TX, T0, VRT;
 double tempSet = 150;
+double tempDisplayed = 0;
 
 //define doubles used for PID
 
@@ -58,16 +59,17 @@ int upFlag = 0;
 int selFlag = 0;
 int dwnFlag = 0;
 int debounceCount = 0;
+int pidStart = LOW;
 int heaterState = LOW; 
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //PID Setup
 //Specify the links and initial tuning parameters
-double Kp=2, Ki=5, Kd=1;
+double Kp=100, Ki=0, Kd=150;
 PID myPID(&pidInput, &pidOutput, &pidSetpoint, Kp, Ki, Kd, DIRECT);
 
-int WindowSize = 5000;
+int WindowSize = 500;
 unsigned long windowStartTime;
 
 void setup() {
@@ -109,37 +111,66 @@ void setup() {
 
 void loop() 
 {
-  double tempDisplayed = 0;
 
+  
 
   VRT = analogRead(TEMP_IN);
   if (VRT > 850)
   {
-    error();
+    //error();
   }
   else
   {
     
   }
   VRT = analogRead(A2);
-  Serial.println(VRT);
+  //Serial.println(VRT);
   tempDisplayed = adcToCelcius(VRT);
 
+
+
+//enable PID output
+  if (pidStart == HIGH)
+  {
+    //Send input to PID and compute  
+    pidSetpoint = tempSet;
+    pidInput = tempDisplayed;
+    myPID.Compute();
+      if (millis() - windowStartTime > WindowSize)
+    { //time to shift the Relay Window
+      windowStartTime += WindowSize;
+    }
+    if (pidOutput < millis() - windowStartTime) 
+    {
+    digitalWrite(HEATER_OUT, LOW);
+    }
+    else
+    { 
+    digitalWrite(HEATER_OUT, HIGH);
+    }
+  }
+  else
+  {
+    digitalWrite(HEATER_OUT, LOW);
+  }
+
+  
+//Button Read Code
   if(selFlag == 1)
     {
-      if(heaterState == LOW)
+      if(pidStart == LOW)
       {
-        heaterState = HIGH;
+        pidStart = HIGH;
         delay(100);
       }
       else
       {
-        heaterState = LOW;
+        pidStart = LOW;
         delay(100);
       }
       selFlag = 0;
       delay(10);
-      digitalWrite(HEATER_OUT, heaterState);
+      //digitalWrite(HEATER_OUT, heaterState);
     } 
    if(upFlag == 1)
    {
@@ -161,7 +192,12 @@ void loop()
      dwnFlag = 0;
      delay(10);
      }
-  writeToDisplay(tempDisplayed, tempSet, heaterState);
+  //write to display and serial console   
+  writeToDisplay(tempDisplayed, tempSet, pidStart);
+  Serial.print(tempSet);
+  Serial.print(" ");
+  Serial.print(tempDisplayed);
+  //Serial.println(tempDisplayed);
 }
 
 
@@ -176,6 +212,8 @@ double adcToCelcius(double tempIn)
   tempOut = tempOut - 273.15;
   return tempOut;
 }
+
+
 
 //Display Update Function
 void writeToDisplay(double tempDisplayed, double tempSet, int heaterState)
